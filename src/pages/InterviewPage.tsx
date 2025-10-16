@@ -119,7 +119,14 @@ const InterviewPage: React.FC = () => {
       setIsFinished(true);
 
     } catch (err) {
-      setError('답변 제출 또는 채점 중 오류가 발생했습니다.');
+      // setError('답변 제출 또는 채점 중 오류가 발생했습니다.');
+      // 오류 발생 시 해당 question_id의 상세페이지로 이동
+      const currentQuestion = questions[currentQuestionIndex];
+      if (currentQuestion && currentQuestion.id) {
+        navigate(`/questions/${currentQuestion.id}`);
+      } else {
+        setError('예상치 못한 오류가 발생했습니다.');
+      }
       console.error(err);
     } finally {
       setIsLoading(false);
