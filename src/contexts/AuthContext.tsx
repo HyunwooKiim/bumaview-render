@@ -75,14 +75,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       let userData: User;
       if (decoded && decoded.user_id) {
         userData = {
-          user_id: parseInt(decoded.user_id),
+          id: String(decoded.user_id),
           username: credentials.username,
           role: 'USER', // 기본값
         };
       } else {
         // 토큰 디코딩 실패 시 임시 데이터
         userData = {
-          user_id: 1, // 임시 ID
+          id: '1', // 임시 ID
           username: credentials.username,
           role: 'USER', // 기본값
         };

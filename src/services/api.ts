@@ -1,4 +1,20 @@
 import axios from 'axios';
+import {
+  Question,
+  Answer,
+  FilteredQuestionResponse,
+  CreateQuestionRequest,
+  CreateAnswerRequest,
+  User,
+  LoginRequest,
+  SignupRequest,
+  AuthResponse,
+  RelatedQuestionsResponse,
+  AIQuestionRequest,
+  QuestionIdResponse,
+  QuestionResponse,
+  UpdateQuestionRequest
+} from '../types';
 
 // JWT 토큰 디코딩 함수
 const decodeJWT = (token: string) => {
@@ -38,13 +54,11 @@ api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     if (token) {
-      // 토큰 유효성 간단 체크
       if (!token.includes('.') || token.split('.').length !== 3) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         return config;
       }
-      
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -63,7 +77,6 @@ api.interceptors.response.use(
       localStorage.removeItem('user');
       window.location.href = '/login';
     }
-    
     return Promise.reject(error);
   }
 );
@@ -73,7 +86,6 @@ export const authAPI = {
   login: async (credentials: { username: string; password: string }) => {
     const response = await api.post('/api/auth/login', credentials);
     
-    // 헤더에서 토큰 확인
     const authHeader = response.headers.authorization || 
                       response.headers.Authorization;
     
@@ -87,7 +99,6 @@ export const authAPI = {
         token: token
       };
     } else {
-      // 응답 바디에서도 토큰 확인 (백업)
       const bodyToken = response.data.token || 
                        response.data.accessToken || 
                        response.data.access_token;
@@ -108,19 +119,16 @@ export const authAPI = {
     return response.data;
   },
   
-  // 토큰 새로고침 (현재 토큰으로 새 토큰 받기)
   refresh: async () => {
     const response = await api.post('/api/token/reissue');
     return response.data;
   },
   
-  // 로그아웃
   logout: async () => {
     const response = await api.post('/api/auth/logout');
     return response.data;
   },
   
-  // 토큰 상태 확인 (디버깅용)
   checkTokenStatus: () => {
     const token = localStorage.getItem('token');
     const user = localStorage.getItem('user');
@@ -135,19 +143,16 @@ export const authAPI = {
 
 // User API
 export const usersAPI = {
-  // 현재 사용자 정보 조회
   getMe: async () => {
     const response = await api.get('/api/users/me');
     return response.data;
   },
   
-  // 현재 사용자의 답변 조회
   getMyAnswers: async () => {
     const response = await api.get('/api/answers/my');
     return response.data;
   },
   
-  // 사용자 정보 조회
   getById: async (userId: number) => {
     const response = await api.get(`/api/users/${userId}`);
     return response.data;
@@ -194,16 +199,21 @@ export const questionsAPI = {
     return response.data;
   },
   
-  getById: async (id: string) => {
-    // API 명세서에 개별 질문 조회가 없으므로 전체 목록에서 필터링
-    const allQuestions = await questionsAPI.getAll();
-    const question = allQuestions.find((q: any) => q.question_id === parseInt(id));
-    if (!question) {
-      throw new Error('Question not found');
-    }
-    return question;
+  getById: async (id: number): Promise<QuestionResponse> => {
+    const response = await api.get(`/api/questions/${id}`);
+    return response.data;
   },
   
+  getMyQuestions: async (page: number = 1, size: number = 10): Promise<FilteredQuestionResponse[]> => {
+    const response = await api.get('/api/questions/user/me', { params: { page, size } });
+    return response.data;
+  },
+
+  updateQuestion: async (questionId: number, data: UpdateQuestionRequest): Promise<any> => {
+    const response = await api.patch(`/api/questions/${questionId}`, data);
+    return response.data;
+  },
+
   create: async (questionData: {
     content: string;
     category: string;
@@ -214,35 +224,39 @@ export const questionsAPI = {
     return response.data;
   },
   
-  createWithAI: async (aiData: {
-    topic: string;
-    difficulty: string;
-    count: number;
-  }) => {
-    const response = await api.post('/api/questions/ai', aiData);
+  generateAiQuestion: async (data: AIQuestionRequest): Promise<QuestionIdResponse> => {
+    const response = await api.post('/api/questions/ai', data);
     return response.data;
   },
   
-  createFromCSV: async (csvData: { csv_file: string }) => {
-    const response = await api.post('/api/questions/csv', csvData);
+  createFromCSV: async (csvFile: File): Promise<any> => {
+    const formData = new FormData();
+    formData.append('file', csvFile);
+
+    const response = await api.post('/api/questions/csv', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 600000, // 10 minutes
+    });
     return response.data;
   },
   
   delete: async (questionId: number) => {
-    const response = await api.delete('/api/questions', { data: { question_id: questionId } });
+    const response = await api.delete(`/api/questions/${questionId}`);
     return response.data;
   },
 };
 
 // Answers API
 export const answersAPI = {
-  create: async (answerData: { question_at: number; content: string }) => {
-    const response = await api.post('/api/answers', answerData);
+  create: async (answerData: { question_id: number; content: string }) => {
+    const response = await api.post(`/api/answers/create/${answerData.question_id}`, answerData);
     return response.data;
   },
   
   getByQuestionId: async (questionId: number) => {
-    const response = await api.get(`/api/answers?question_id=${questionId}`);
+    const response = await api.get(`/api/answers/question/${questionId}`);
     return response.data;
   },
   
@@ -250,12 +264,12 @@ export const answersAPI = {
     const response = await api.get('/api/answers/my');
     return response.data;
   },
-  
-  delete: async (answerId: number) => {
-    const response = await api.delete('/api/answers', { data: { answer_id: answerId } });
+
+  getById: async (answerId: number) => {
+    const response = await api.get(`/api/answers/detail/${answerId}`);
     return response.data;
   },
-  
+
   like: async (answerId: number) => {
     const response = await api.post('/api/answers/like', { answer_id: answerId });
     return response.data;
@@ -265,14 +279,44 @@ export const answersAPI = {
     const response = await api.delete('/api/answers/unlike', { data: { answer_id: answerId } });
     return response.data;
   },
-  
-  likeComment: async (commentId: number) => {
-    const response = await api.post('/api/answers/comment/like', { comment_id: commentId });
+
+  createComment: async (commentData: { answer_id: number; content: string }) => {
+    const response = await api.post('/api/answers/comments', commentData);
     return response.data;
   },
-  
-  unlikeComment: async (commentId: number) => {
-    const response = await api.delete('/api/answers/comment/unlike', { data: { comment_id: commentId } });
+
+  update: async (answerId: number, content: string) => {
+    const response = await api.patch(`/api/answers/detail/${answerId}`, { content });
+    return response.data;
+  },
+
+  delete: async (answerId: number) => {
+    const response = await api.delete(`/api/answers/detail/${answerId}`);
+    return response.data;
+  },
+
+  updateComment: async (commentId: number, content: string) => {
+    const response = await api.patch(`/api/answers/comments/${commentId}`, { content });
+    return response.data;
+  },
+
+  deleteComment: async (commentId: number) => {
+    const response = await api.delete(`/api/answers/comments/${commentId}`);
+    return response.data;
+  },
+};
+
+// STT API
+export const sttAPI = {
+  transcribe: async (audioFile: File): Promise<{ transcription: string }> => {
+    const formData = new FormData();
+    formData.append('file', audioFile);
+
+    const response = await api.post('/api/stt', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
     return response.data;
   },
 };
@@ -321,6 +365,16 @@ export const reviewsAPI = {
     const response = await api.patch('/api/reviews/comment', commentData);
     return response.data;
   },
+};
+
+// 연관질문 API
+export const getRelatedQuestions = async (questionId: number): Promise<RelatedQuestionsResponse> => {
+  try {
+    const response = await api.get(`/api/questions/${questionId}/related`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || '연관질문 조회에 실패했습니다.');
+  }
 };
 
 export default api;

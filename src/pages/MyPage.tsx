@@ -1,194 +1,332 @@
 import React, { useState, useEffect } from 'react';
-import { usersAPI } from '../services/api';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { answersAPI, questionsAPI } from '../services/api';
+import { MyAnswerResponse, FilteredQuestionResponse, UpdateQuestionRequest } from '../types';
+import LoadingSpinner from '../components/common/LoadingSpinner';
+import ErrorMessage from '../components/common/ErrorMessage';
 
-interface UserProfile {
-  user_id: number;
-  username: string;
-  role: string;
-  created_at: string;
-}
-
-interface UserAnswer {
-  user_id: number;
-  likes: number;
-  liked: boolean;
-  content: string;
-  answered_at: string;
-  ai_comment: string;
-  score: number;
-  user_comments: Array<{
-    user_id: number;
-    content: string;
-    commented_at: string;
-  }>;
-}
+type ActiveTab = 'answers' | 'questions';
 
 const MyPage: React.FC = () => {
-  const { user: authUser, isAuthenticated } = useAuth();
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [userAnswers, setUserAnswers] = useState<UserAnswer[]>([]);
+  const { isAuthenticated, user } = useAuth();
+  const navigate = useNavigate();
+
+  const [activeTab, setActiveTab] = useState<ActiveTab>('answers');
+
+  // Answers State
+  const [myAnswers, setMyAnswers] = useState<MyAnswerResponse[]>([]);
+  const [editingAnswerId, setEditingAnswerId] = useState<number | null>(null);
+  const [editingAnswerContent, setEditingAnswerContent] = useState('');
+
+  // Questions State
+  const [myQuestions, setMyQuestions] = useState<FilteredQuestionResponse[]>([]);
+  const [questionPage, setQuestionPage] = useState(1);
+  const [questionSize, setQuestionSize] = useState(10);
+  const [totalQuestionPages, setTotalQuestionPages] = useState(1);
+  const [editingQuestionId, setEditingQuestionId] = useState<number | null>(null);
+  const [editingQuestionData, setEditingQuestionData] = useState<UpdateQuestionRequest | null>(null);
+
+  // Common State
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchUserData();
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
     }
-  }, [isAuthenticated]);
+    if (activeTab === 'answers') {
+      fetchMyAnswers();
+    } else {
+      fetchMyQuestions();
+    }
+  }, [isAuthenticated, navigate, activeTab, questionPage, questionSize]);
 
-  const fetchUserData = async () => {
+  const fetchMyAnswers = async () => {
+    setIsLoading(true);
+    setError(null);
     try {
-      setIsLoading(true);
-      setError(null);
-      
-      // 사용자 프로필과 답변을 동시에 가져오기
-      const [profile, answers] = await Promise.all([
-        usersAPI.getMe(),
-        usersAPI.getMyAnswers()
-      ]);
-      
-      setUserProfile(profile);
-      setUserAnswers(answers);
-    } catch (error) {
-      console.error('Failed to fetch user data:', error);
-      
-      if (authUser) {
-        setUserProfile({
-          user_id: authUser.user_id || 0,
-          username: authUser.username || '사용자',
-          role: authUser.role || 'USER',
-          created_at: new Date().toISOString()
-        });
-      } else {
-        setError('사용자 정보를 불러올 수 없습니다.');
-      }
+      const response = await answersAPI.getMy();
+      setMyAnswers(response);
+    } catch (err: any) {
+      setError(err.response?.data?.message || '내 답변을 불러오는 데 실패했습니다.');
+      console.error('Failed to fetch my answers:', err);
     } finally {
       setIsLoading(false);
     }
   };
 
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">로그인이 필요합니다</h1>
-          <p className="text-gray-600">마이페이지를 보려면 로그인해주세요.</p>
-        </div>
-      </div>
-    );
-  }
+  const fetchMyQuestions = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await questionsAPI.getMyQuestions(questionPage, questionSize);
+      setMyQuestions(response);
+      // TODO: 백엔드에서 총 페이지 수를 응답 헤더나 별도 필드로 제공해야 정확한 페이지네이션 가능
+      setTotalQuestionPages(1); // 임시 값
+    } catch (err: any) {
+      setError(err.response?.data?.message || '내 질문을 불러오는 데 실패했습니다.');
+      console.error('Failed to fetch my questions:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
+  // --- Answer Handlers ---
+  const handleEditAnswerClick = (answer: MyAnswerResponse) => {
+    setEditingAnswerId(answer.answer_id);
+    setEditingAnswerContent(answer.content);
+  };
+
+  const handleCancelAnswerEdit = () => {
+    setEditingAnswerId(null);
+    setEditingAnswerContent('');
+  };
+
+  const handleSaveAnswerEdit = async (answerId: number) => {
+    if (!editingAnswerContent.trim()) {
+      setError('답변 내용은 비워둘 수 없습니다.');
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      await answersAPI.update(answerId, editingAnswerContent);
+      setEditingAnswerId(null);
+      setEditingAnswerContent('');
+      fetchMyAnswers();
+    } catch (err: any) {
+      setError(err.response?.data?.message || '답변 수정에 실패했습니다.');
+      console.error('Failed to update answer:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeleteAnswerClick = async (answerId: number) => {
+    if (!window.confirm('정말로 이 답변을 삭제하시겠습니까?')) {
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      await answersAPI.delete(answerId);
+      fetchMyAnswers();
+    } catch (err: any) {
+      setError(err.response?.data?.message || '답변 삭제에 실패했습니다.');
+      console.error('Failed to delete answer:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --- Question Handlers ---
+  const handleEditQuestionClick = (question: FilteredQuestionResponse) => {
+    setEditingQuestionId(question.question_id);
+    setEditingQuestionData({
+      content: question.content,
+      category: question.category,
+      company: question.company,
+      question_at: question.question_at,
+    });
+  };
+
+  const handleCancelQuestionEdit = () => {
+    setEditingQuestionId(null);
+    setEditingQuestionData(null);
+  };
+
+  const handleSaveQuestionEdit = async (questionId: number) => {
+    if (!editingQuestionData || !editingQuestionData.content.trim()) {
+      setError('질문 내용은 비워둘 수 없습니다.');
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      await questionsAPI.updateQuestion(questionId, editingQuestionData);
+      setEditingQuestionId(null);
+      setEditingQuestionData(null);
+      fetchMyQuestions();
+    } catch (err: any) {
+      setError(err.response?.data?.message || '질문 수정에 실패했습니다.');
+      console.error('Failed to update question:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeleteQuestionClick = async (questionId: number) => {
+    if (!window.confirm('정말로 이 질문을 삭제하시겠습니까?')) {
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      await questionsAPI.delete(questionId);
+      fetchMyQuestions();
+    } catch (err: any) {
+      setError(err.response?.data?.message || '질문 삭제에 실패했습니다.');
+      console.error('Failed to delete question:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleQuestionPageChange = (newPage: number) => {
+    if (newPage > 0 && newPage <= totalQuestionPages) {
+      setQuestionPage(newPage);
+    }
+  };
+
+  if (!isAuthenticated) {
+    return null; // 로그인 페이지로 리다이렉트되므로 여기서는 아무것도 렌더링하지 않음
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">
-            {userProfile?.username || '사용자'}님의 마이페이지
-          </h1>
-          
-          <div className="space-y-4">
-            <div>
-              <span className="font-medium text-gray-600">사용자 ID:</span>
-              <span className="ml-2 text-gray-900">{userProfile?.user_id}</span>
-            </div>
-            
-            <div>
-              <span className="font-medium text-gray-600">사용자명:</span>
-              <span className="ml-2 text-gray-900">{userProfile?.username}</span>
-            </div>
-            
-            <div>
-              <span className="font-medium text-gray-600">역할:</span>
-              <span className="ml-2 text-gray-900">
-                {userProfile?.role === 'ADMIN' ? '관리자' : '일반 사용자'}
-              </span>
-            </div>
-            
-            <div>
-              <span className="font-medium text-gray-600">가입일:</span>
-              <span className="ml-2 text-gray-900">
-                {userProfile?.created_at 
-                  ? new Date(userProfile.created_at).toLocaleDateString('ko-KR')
-                  : '정보 없음'
-                }
-              </span>
-            </div>
-            
-            {error && (
-              <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
-                <p className="text-red-600">{error}</p>
-              </div>
-            )}
-          </div>
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="max-w-4xl mx-auto px-4">
+        <h1 className="text-3xl font-bold text-gray-900 mb-6">내 활동 관리</h1>
+
+        {/* Tab Navigation */}
+        <div className="flex border-b border-gray-200 mb-6">
+          <button
+            className={`py-2 px-4 text-lg font-medium ${activeTab === 'answers' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+            onClick={() => setActiveTab('answers')}
+          >
+            내 답변
+          </button>
+          <button
+            className={`py-2 px-4 text-lg font-medium ${activeTab === 'questions' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+            onClick={() => setActiveTab('questions')}
+          >
+            내 질문
+          </button>
         </div>
-        
-        {/* 내 답변 섹션 */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mt-8">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">내 답변 목록</h2>
-          
-          {userAnswers.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-gray-500">아직 작성한 답변이 없습니다.</p>
+
+        {isLoading && <LoadingSpinner text={`${activeTab === 'answers' ? '답변' : '질문'} 불러오는 중...`} />}
+        {error && <ErrorMessage message={error} />}
+
+        {!isLoading && !error && activeTab === 'answers' && (
+          myAnswers.length === 0 ? (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center text-gray-600">
+              <p>아직 등록된 답변이 없습니다.</p>
+              <button onClick={() => navigate('/interview')} className="btn-primary mt-4">모의 면접 시작하기</button>
             </div>
           ) : (
             <div className="space-y-6">
-              {userAnswers.map((answer, index) => (
-                <div key={index} className="border border-gray-200 rounded-lg p-4">
-                  {/* 답변 내용 */}
-                  <div className="mb-4">
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">답변 내용</h3>
-                    <p className="text-gray-700 whitespace-pre-wrap">{answer.content}</p>
-                  </div>
-                  
-                  {/* AI 점수와 피드백 */}
-                  <div className="mb-4 p-3 bg-blue-50 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-blue-600">AI 평가</span>
-                      <span className="text-lg font-bold text-blue-600">{answer.score}점</span>
+              {myAnswers.map((answer) => (
+                <div key={answer.answer_id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                  {editingAnswerId === answer.answer_id ? (
+                    <div>
+                      <textarea
+                        value={editingAnswerContent}
+                        onChange={(e) => setEditingAnswerContent(e.target.value)}
+                        className="input-field w-full mb-4"
+                        rows={5}
+                      />
+                      <div className="flex justify-end space-x-2">
+                        <button onClick={handleCancelAnswerEdit} className="btn-secondary">취소</button>
+                        <button onClick={() => handleSaveAnswerEdit(answer.answer_id)} className="btn-primary">저장</button>
+                      </div>
                     </div>
-                    {answer.ai_comment && (
-                      <p className="text-sm text-gray-700">{answer.ai_comment}</p>
-                    )}
-                  </div>
-                  
-                  {/* 통계 정보 */}
-                  <div className="flex items-center justify-between text-sm text-gray-500 mb-3">
-                    <span>좋아요 {answer.likes}개</span>
-                    <span>댓글 {answer.user_comments.length}개</span>
-                    <span>{new Date(answer.answered_at).toLocaleDateString('ko-KR')}</span>
-                  </div>
-                  
-                  {/* 사용자 댓글 */}
-                  {answer.user_comments.length > 0 && (
-                    <div className="mt-4">
-                      <h4 className="text-sm font-medium text-gray-900 mb-2">댓글</h4>
-                      <div className="space-y-2">
-                        {answer.user_comments.map((comment, commentIndex) => (
-                          <div key={commentIndex} className="bg-gray-50 p-3 rounded-md">
-                            <p className="text-sm text-gray-700">{comment.content}</p>
-                            <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
-                              <span>사용자 {comment.user_id}</span>
-                              <span>{new Date(comment.commented_at).toLocaleDateString('ko-KR')}</span>
-                            </div>
-                          </div>
-                        ))}
+                  ) : (
+                    <div>
+                      <p className="text-gray-800 text-lg mb-2">{answer.content}</p>
+                      <div className="text-sm text-gray-600 mb-4">
+                        <p><strong>점수:</strong> {answer.score}점</p>
+                        <p><strong>AI 평가:</strong> {answer.ai_comment}</p>
+                        <p><strong>작성일:</strong> {new Date(answer.answered_at).toLocaleDateString()}</p>
+                      </div>
+                      <div className="flex justify-end space-x-2">
+                        <button onClick={() => handleEditAnswerClick(answer)} className="btn-secondary">수정</button>
+                        <button onClick={() => handleDeleteAnswerClick(answer.answer_id)} className="btn-danger">삭제</button>
                       </div>
                     </div>
                   )}
                 </div>
               ))}
             </div>
-          )}
-        </div>
+          )
+        )}
+
+        {!isLoading && !error && activeTab === 'questions' && (
+          myQuestions.length === 0 ? (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center text-gray-600">
+              <p>아직 등록된 질문이 없습니다.</p>
+              <button onClick={() => navigate('/create-question')} className="btn-primary mt-4">새 질문 등록하기</button>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {myQuestions.map((question) => (
+                <div key={question.question_id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                  {editingQuestionId === question.question_id ? (
+                    <div>
+                      <textarea
+                        value={editingQuestionData?.content || ''}
+                        onChange={(e) => setEditingQuestionData(prev => prev ? { ...prev, content: e.target.value } : null)}
+                        className="input-field w-full mb-2"
+                        rows={3}
+                      />
+                      <input
+                        type="text"
+                        value={editingQuestionData?.category || ''}
+                        onChange={(e) => setEditingQuestionData(prev => prev ? { ...prev, category: e.target.value } : null)}
+                        className="input-field w-full mb-2"
+                        placeholder="카테고리"
+                      />
+                      <input
+                        type="text"
+                        value={editingQuestionData?.company || ''}
+                        onChange={(e) => setEditingQuestionData(prev => prev ? { ...prev, company: e.target.value } : null)}
+                        className="input-field w-full mb-4"
+                        placeholder="회사명"
+                      />
+                      <div className="flex justify-end space-x-2">
+                        <button onClick={handleCancelQuestionEdit} className="btn-secondary">취소</button>
+                        <button onClick={() => handleSaveQuestionEdit(question.question_id)} className="btn-primary">저장</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-gray-800 text-lg mb-2">{question.content}</p>
+                      <div className="text-sm text-gray-600 mb-4">
+                        <p><strong>카테고리:</strong> {question.category}</p>
+                        <p><strong>회사:</strong> {question.company}</p>
+                        <p><strong>작성일:</strong> {new Date(question.question_at * 1000).toLocaleDateString()}</p>
+                      </div>
+                      <div className="flex justify-end space-x-2">
+                        <button onClick={() => handleEditQuestionClick(question)} className="btn-secondary">수정</button>
+                        <button onClick={() => handleDeleteQuestionClick(question.question_id)} className="btn-danger">삭제</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {/* Pagination */}
+              {totalQuestionPages > 1 && (
+                <div className="flex justify-center space-x-2 mt-6">
+                  <button
+                    onClick={() => handleQuestionPageChange(questionPage - 1)}
+                    disabled={questionPage === 1}
+                    className="btn-secondary"
+                  >
+                    이전
+                  </button>
+                  <span className="py-2 px-4 text-gray-700">{questionPage} / {totalQuestionPages}</span>
+                  <button
+                    onClick={() => handleQuestionPageChange(questionPage + 1)}
+                    disabled={questionPage === totalQuestionPages}
+                    className="btn-secondary"
+                  >
+                    다음
+                  </button>
+                </div>
+              )}
+            </div>
+          )
+        )}
       </div>
     </div>
   );

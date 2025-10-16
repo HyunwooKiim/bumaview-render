@@ -3,13 +3,15 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { MagnifyingGlassIcon, PlusIcon, ExclamationTriangleIcon, LockClosedIcon } from '@heroicons/react/24/outline';
 import { questionsAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { Question } from '../types';
+import { Question, RelatedQuestion } from '../types';
+import RelatedQuestions from '../components/common/RelatedQuestions';
 
-const QuestionsPage: React.FC = () => {
+const QuestionPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { isAuthenticated } = useAuth();
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [allQuestions, setAllQuestions] = useState<Question[]>([]); // 전체 질문 목록
+  const [allQuestions, setAllQuestions] = useState<Question[]>([]);
+  const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null);
   const [filters, setFilters] = useState({
     content: '',
     category: '',
@@ -19,7 +21,7 @@ const QuestionsPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [questionsPerPage] = useState(10); // 페이지당 질문 수
+  const [questionsPerPage] = useState(10);
 
   // URL에서 검색어 파라미터 가져오기
   useEffect(() => {
@@ -42,8 +44,26 @@ const QuestionsPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await questionsAPI.getAll();
-      
+
+      let data;
+
+      // 필터가 있는지 확인
+      const hasFilters = filters.content || filters.category || filters.company || filters.question_at;
+
+      if (hasFilters) {
+        // 필터가 있으면 filtered API 사용
+        const filterParams: any = {};
+        if (filters.content) filterParams.content = filters.content;
+        if (filters.category) filterParams.category = filters.cate수정ㅇgory;
+        if (filters.company) filterParams.company = filters.company;
+        if (filters.question_at) filterParams.question_at = filters.question_at;
+
+        data = await questionsAPI.getFiltered(filterParams);
+      } else {
+        // 필터가 없으면 전체 조회 API 사용
+        data = await questionsAPI.getAll();
+      }
+
       if (Array.isArray(data)) {
         // 각 질문의 상세 정보를 조회하여 답변 수를 정확히 가져오기
         const questionsWithDetails = await Promise.all(
@@ -64,23 +84,8 @@ const QuestionsPage: React.FC = () => {
           })
         );
 
-        // 부분 검색 기능 적용
-        const filteredData = questionsWithDetails.filter(question => {
-          const matchesContent = !filters.content || 
-            question.content.toLowerCase().includes(filters.content.toLowerCase()) ||
-            question.company.toLowerCase().includes(filters.content.toLowerCase()) ||
-            question.category.toLowerCase().includes(filters.content.toLowerCase());
-          
-          const matchesCategory = !filters.category || question.category === filters.category;
-          const matchesCompany = !filters.company || 
-            question.company.toLowerCase().includes(filters.company.toLowerCase());
-          const matchesDate = !filters.question_at || question.question_at === filters.question_at;
-          
-          return matchesContent && matchesCategory && matchesCompany && matchesDate;
-        });
-        
-        setAllQuestions(filteredData);
-        setQuestions(filteredData);
+        setAllQuestions(questionsWithDetails);
+        setQuestions(questionsWithDetails);
       } else {
         console.warn('Unexpected data format:', data);
         setAllQuestions([]);
@@ -93,6 +98,18 @@ const QuestionsPage: React.FC = () => {
       setQuestions([]);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleQuestionClick = (question: Question) => {
+    setSelectedQuestion(question);
+  };
+
+  const handleRelatedQuestionClick = (relatedQuestion: RelatedQuestion) => {
+    // 연관질문을 클릭했을 때 해당 질문을 찾아서 선택
+    const foundQuestion = allQuestions.find(q => q.question_id === relatedQuestion.question_id);
+    if (foundQuestion) {
+      setSelectedQuestion(foundQuestion);
     }
   };
 
@@ -123,228 +140,219 @@ const QuestionsPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">질문 목록</h1>
-          {isAuthenticated ? (
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">면접 질문</h1>
+            <p className="text-gray-600 mt-2">다양한 면접 질문을 확인하고 연습해보세요</p>
+          </div>
+          {isAuthenticated && (
             <Link
               to="/questions/create"
-              className="btn-primary flex items-center space-x-2"
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
             >
-              <PlusIcon className="w-5 h-5" />
-              <span>질문 등록</span>
-            </Link>
-          ) : (
-            <Link
-              to="/login"
-              className="btn-secondary flex items-center space-x-2"
-            >
-              <LockClosedIcon className="w-5 h-5" />
-              <span>로그인 후 질문 등록</span>
+              <PlusIcon className="h-5 w-5" />
+              질문 등록
             </Link>
           )}
         </div>
 
-        {/* Filter Section */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-          <form onSubmit={handleSearch} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">질문 내용</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={filters.content}
-                  onChange={(e) => handleFilterChange('content', e.target.value)}
-                  placeholder="검색어를 입력하세요"
-                  className="input-field w-full pr-10"
-                />
-                <MagnifyingGlassIcon className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Main Content - Questions List */}
+          <div className="lg:col-span-2">
+            {/* Filters */}
+            <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    검색어
+                  </label>
+                  <div className="relative">
+                    <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="질문, 회사, 카테고리 검색..."
+                      value={filters.content}
+                      onChange={(e) => setFilters({...filters, content: e.target.value})}
+                      className="pl-10 w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    카테고리
+                  </label>
+                  <select
+                    value={filters.category}
+                    onChange={(e) => setFilters({...filters, category: e.target.value})}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">전체 카테고리</option>
+                    <option value="기술">기술</option>
+                    <option value="인성">인성</option>
+                    <option value="경험">경험</option>
+                    <option value="상황">상황</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    회사
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="회사명 검색..."
+                    value={filters.company}
+                    onChange={(e) => setFilters({...filters, company: e.target.value})}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">카테고리</label>
-              <select
-                value={filters.category}
-                onChange={(e) => handleFilterChange('category', e.target.value)}
-                className="input-field w-full"
-              >
-                <option value="">전체</option>
-                <option value="프로그래밍">프로그래밍</option>
-                <option value="인성면접">인성면접</option>
-                <option value="코딩테스트">코딩테스트</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">회사</label>
-              <input
-                type="text"
-                value={filters.company}
-                onChange={(e) => handleFilterChange('company', e.target.value)}
-                placeholder="회사명을 입력하세요"
-                className="input-field w-full"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">날짜</label>
-              <input
-                type="date"
-                value={filters.question_at}
-                onChange={(e) => handleFilterChange('question_at', e.target.value)}
-                className="input-field w-full"
-              />
-            </div>
-          </form>
-        </div>
-
-        {/* Content Area */}
-        <div className="space-y-4">
-          {isLoading ? (
-            <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="mt-4 text-gray-600">질문을 불러오는 중...</p>
-            </div>
-          ) : error ? (
-            <div className="text-center py-12">
-              <ExclamationTriangleIcon className="h-12 w-12 text-red-500 mx-auto mb-4" />
-              <p className="text-red-600 mb-4">{error}</p>
-              <button
-                onClick={handleRetry}
-                className="btn-primary"
-              >
-                다시 시도
-              </button>
-            </div>
-          ) : questions.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="bg-gray-100 rounded-full h-16 w-16 flex items-center justify-center mx-auto mb-4">
-                <MagnifyingGlassIcon className="h-8 w-8 text-gray-400" />
+            {/* Questions List */}
+            {isLoading ? (
+              <div className="bg-white rounded-lg shadow-sm p-8 text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                <p className="text-gray-600">질문을 불러오는 중...</p>
               </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">검색 결과가 없습니다</h3>
-              <p className="text-gray-600 mb-4">검색 조건을 바꾸거나 새로운 질문을 등록해보세요.</p>
-              {isAuthenticated ? (
-                <Link
-                  to="/questions/create"
-                  className="btn-primary"
-                >
-                  첫 번째 질문 등록하기
-                </Link>
-              ) : (
-                <Link
-                  to="/login"
-                  className="btn-secondary flex items-center justify-center space-x-2 mx-auto w-fit"
-                >
-                  <LockClosedIcon className="w-5 h-5" />
-                  <span>로그인 후 질문 등록</span>
-                </Link>
-              )}
-            </div>
-          ) : (
-            <>
-              {/* Results Header */}
-              <div className="flex items-center justify-between mb-4">
-                <p className="text-gray-600">
-                  총 <span className="font-medium text-gray-900">{allQuestions.length}</span>개의 질문
-                  {allQuestions.length > 0 && (
-                    <span className="ml-2">
-                      ({indexOfFirstQuestion + 1}-{Math.min(indexOfLastQuestion, allQuestions.length)})
-                    </span>
-                  )}
-                </p>
+            ) : error ? (
+              <div className="bg-white rounded-lg shadow-sm p-8">
+                <div className="text-center">
+                  <ExclamationTriangleIcon className="h-12 w-12 text-red-500 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">오류가 발생했습니다</h3>
+                  <p className="text-gray-600 mb-4">{error}</p>
+                  <button
+                    onClick={fetchQuestions}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    다시 시도
+                  </button>
+                </div>
               </div>
-
-              {/* Questions List */}
-              {currentQuestions.map((question) => (
-                <div key={question.question_id} className="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
-                  <div className="p-6">
-                    <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-                      <div className="lg:col-span-2">
-                        <Link 
-                          to={`/questions/${question.question_id}`}
-                          className="text-gray-900 hover:text-blue-600 font-medium text-lg block mb-2"
-                        >
-                          {question.content}
-                        </Link>
-                        <div className="flex items-center space-x-4 text-sm text-gray-500">
-                          <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                            {question.category}
+            ) : (
+              <div className="space-y-4">
+                {currentQuestions.map((question) => (
+                  <div
+                    key={question.question_id}
+                    className={`bg-white rounded-lg shadow-sm p-6 hover:shadow-md transition-shadow ${
+                      selectedQuestion?.question_id === question.question_id 
+                        ? 'ring-2 ring-blue-500 bg-blue-50' 
+                        : ''
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex items-center space-x-2">
+                        <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded">
+                          {question.category}
+                        </span>
+                        <span className="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded">
+                          {question.company}
+                        </span>
+                        {question.score !== undefined && (
+                          <span className="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded">
+                            점수 {question.score}
                           </span>
-                          <span>{question.company}</span>
-                          <span>{question.question_at}</span>
-                        </div>
+                        )}
                       </div>
-                      <div className="text-center">
-                        <div>
-                          <p className="text-sm text-gray-500">답변 수</p>
-                          <p className="font-medium">{question.answers?.length || 0}개</p>
-                        </div>
+                      <span className="text-sm text-gray-500">
+                        {new Date(question.question_at * 1000).toLocaleDateString()}
+                      </span>
+                    </div>
+
+                    <h3
+                      onClick={() => handleQuestionClick(question)}
+                      className="text-lg font-medium text-gray-900 mb-3 line-clamp-2 cursor-pointer hover:text-blue-600"
+                    >
+                      {question.content}
+                    </h3>
+
+                    <div className="flex items-center justify-between text-sm text-gray-600">
+                      <div className="flex items-center space-x-4">
+                        <span>답변 {question.answers?.length || 0}개</span>
+                        <span>질문 ID: {question.question_id}</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {selectedQuestion?.question_id === question.question_id && (
+                          <span className="text-blue-600 font-medium">선택됨</span>
+                        )}
+                        <Link
+                          to={`/questions/${question.question_id}`}
+                          className="text-blue-600 hover:text-blue-800 font-medium"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          자세히 보기 →
+                        </Link>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
+                ))}
 
-        {/* Pagination */}
-        {!isLoading && !error && allQuestions.length > questionsPerPage && (
-          <div className="flex items-center justify-center mt-8">
-            <nav className="flex items-center space-x-2">
-              <button 
-                className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={currentPage === 1}
-                onClick={() => handlePageChange(currentPage - 1)}
-              >
-                이전
-              </button>
-              
-              {/* Page Numbers */}
-              {Array.from({ length: totalPages }, (_, index) => {
-                const pageNumber = index + 1;
-                const showPage = 
-                  pageNumber === 1 || 
-                  pageNumber === totalPages || 
-                  (pageNumber >= currentPage - 2 && pageNumber <= currentPage + 2);
-                
-                if (!showPage) {
-                  if (pageNumber === currentPage - 3 || pageNumber === currentPage + 3) {
-                    return <span key={pageNumber} className="px-2">...</span>;
-                  }
-                  return null;
-                }
-                
-                return (
-                  <button
-                    key={pageNumber}
-                    onClick={() => handlePageChange(pageNumber)}
-                    className={`px-3 py-2 rounded-lg ${
-                      currentPage === pageNumber
-                        ? 'bg-blue-600 text-white'
-                        : 'border border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    {pageNumber}
-                  </button>
-                );
-              })}
-              
-              <button 
-                className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={currentPage === totalPages}
-                onClick={() => handlePageChange(currentPage + 1)}
-              >
-                다음
-              </button>
-            </nav>
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex justify-center mt-8">
+                    <nav className="flex space-x-2">
+                      <button
+                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                        disabled={currentPage === 1}
+                        className="px-3 py-2 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        이전
+                      </button>
+
+                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                        const pageNum = Math.max(1, Math.min(totalPages - 4, currentPage - 2)) + i;
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setCurrentPage(pageNum)}
+                            className={`px-3 py-2 rounded-lg border ${
+                              currentPage === pageNum
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+
+                      <button
+                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                        disabled={currentPage === totalPages}
+                        className="px-3 py-2 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        다음
+                      </button>
+                    </nav>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-        )}
+
+          {/* Sidebar - Related Questions */}
+          <div className="lg:col-span-1">
+            {selectedQuestion ? (
+              <RelatedQuestions
+                questionId={selectedQuestion.question_id}
+                onQuestionClick={handleRelatedQuestionClick}
+              />
+            ) : (
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <h3 className="text-lg font-semibold mb-4">🔗 연관질문</h3>
+                <div className="text-center py-8 text-gray-500">
+                  <div className="text-4xl mb-4">👈</div>
+                  <p>질문을 선택하면</p>
+                  <p>연관된 질문들을 보여드립니다</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
 };
 
-export default QuestionsPage;
+export default QuestionPage;

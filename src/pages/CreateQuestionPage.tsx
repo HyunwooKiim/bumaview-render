@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { questionsAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -7,6 +7,8 @@ import { CreateQuestionRequest } from '../types';
 const CreateQuestionPage: React.FC = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [formData, setFormData] = useState<CreateQuestionRequest>({
     content: '',
     category: '',
@@ -14,6 +16,7 @@ const CreateQuestionPage: React.FC = () => {
     question_at: Math.floor(Date.now() / 1000), // Unix timestamp
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingCsv, setIsUploadingCsv] = useState(false);
   const [error, setError] = useState('');
 
   // 로그인하지 않은 사용자는 접근 불가
@@ -48,7 +51,6 @@ const CreateQuestionPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // 폼 검증
     if (!formData.content.trim()) {
       setError('질문 내용을 입력해주세요.');
       return;
@@ -68,24 +70,53 @@ const CreateQuestionPage: React.FC = () => {
       
       const result = await questionsAPI.create(formData);
       
-      // 성공 시 질문 상세 페이지로 이동
       if (result.question_id) {
         navigate(`/questions/${result.question_id}`);
       } else {
         navigate('/questions');
       }
     } catch (error: any) {
-      if (error.response?.status === 401) {
-        setError('인증이 만료되었습니다. 페이지를 새로고침하거나 다시 로그인해주세요.');
-      } else if (error.response?.status === 400) {
-        setError(`잘못된 요청입니다: ${error.response?.data?.message || '입력 데이터를 확인해주세요'}`);
-      } else if (error.response?.status === 500) {
-        setError('서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-      } else {
-        setError(`질문 등록에 실패했습니다: ${error.response?.data?.message || error.message || '알 수 없는 오류'}`);
-      }
+      handleApiError(error, '질문 등록에 실패했습니다');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleCsvButtonClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingCsv(true);
+    setError('');
+
+    try {
+      await questionsAPI.createFromCSV(file);
+      alert('CSV 파일이 성공적으로 업로드되었습니다.');
+      navigate('/questions');
+    } catch (error: any) {
+      handleApiError(error, 'CSV 업로드에 실패했습니다');
+    } finally {
+      setIsUploadingCsv(false);
+      // 파일 입력을 초기화하여 동일한 파일을 다시 선택할 수 있도록 함
+      if(fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleApiError = (error: any, defaultMessage: string) => {
+    if (error.response?.status === 401) {
+      setError('인증이 만료되었습니다. 페이지를 새로고침하거나 다시 로그인해주세요.');
+    } else if (error.response?.status === 400) {
+      setError(`잘못된 요청입니다: ${error.response?.data?.message || '입력 데이터를 확인해주세요'}`);
+    } else if (error.response?.status === 500) {
+      setError('서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+    } else {
+      setError(`${defaultMessage}: ${error.response?.data?.message || error.message || '알 수 없는 오류'}`);
     }
   };
 
@@ -217,15 +248,32 @@ const CreateQuestionPage: React.FC = () => {
               >
                 취소
               </button>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSubmitting ? '등록 중...' : '질문 등록'}
-              </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={handleCsvButtonClick}
+                  disabled={isSubmitting || isUploadingCsv}
+                  className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isUploadingCsv ? '업로드 중...' : 'CSV로 등록'}
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting || isUploadingCsv}
+                  className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmitting ? '등록 중...' : '질문 등록'}
+                </button>
+              </div>
             </div>
           </form>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
+            accept=".csv"
+          />
         </div>
 
         {/* 도움말 섹션 */}
