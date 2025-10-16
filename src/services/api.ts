@@ -225,7 +225,9 @@ export const questionsAPI = {
   },
   
   generateAiQuestion: async (data: AIQuestionRequest): Promise<QuestionIdResponse> => {
-    const response = await api.post('/api/questions/ai', data);
+    const response = await api.post('/api/questions/ai', data, {
+      timeout: 120000, // 2 minutes for AI generation
+    });
     return response.data;
   },
   

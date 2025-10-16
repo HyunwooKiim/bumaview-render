@@ -31,7 +31,7 @@ const InterviewPage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const requestData: AIQuestionRequest = { category: 'IT', company: 'BSSM', detail: 'React' };
+      const requestData: AIQuestionRequest = { category: 'IT', company: 'BSSM', detail: 'CS' };
       const idResponse = await questionsAPI.generateAiQuestion(requestData);
       const fetchedQuestion = await questionsAPI.getById(idResponse.question_id);
       setQuestions([fetchedQuestion]);
